@@ -22,6 +22,25 @@ jest.mock('@nestjs/typeorm', () => {
   };
 });
 
+jest.mock('@whiskeysockets/baileys', () => {
+  return {
+    __esModule: true,
+    default: jest.fn().mockReturnValue({
+      ev: {
+        on: jest.fn(),
+      },
+      end: jest.fn(),
+    }),
+    useMultiFileAuthState: jest.fn().mockResolvedValue({
+      state: {},
+      saveCreds: jest.fn(),
+    }),
+    DisconnectReason: {
+      loggedOut: 401,
+    },
+  };
+});
+
 import { AppModule } from './../src/app.module';
 
 describe('AppController (e2e)', () => {
