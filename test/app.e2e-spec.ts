@@ -12,8 +12,22 @@ jest.mock('@nestjs/typeorm', () => {
     static forRoot() {
       return { module: MockTypeOrmModule };
     }
-    static forFeature() {
-      return { module: MockTypeOrmModule };
+    static forFeature(entities: any[]) {
+      const providers = entities.map((entity) => ({
+        provide: actual.getRepositoryToken(entity),
+        useValue: {
+          find: jest.fn().mockResolvedValue([]),
+          findOne: jest.fn().mockResolvedValue(null),
+          save: jest.fn().mockImplementation((val) => Promise.resolve(val)),
+          update: jest.fn().mockResolvedValue({}),
+          create: jest.fn().mockImplementation((dto) => dto),
+        },
+      }));
+      return {
+        module: MockTypeOrmModule,
+        providers: providers,
+        exports: providers,
+      };
     }
   }
   return {
