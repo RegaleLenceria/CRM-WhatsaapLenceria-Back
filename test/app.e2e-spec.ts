@@ -2,6 +2,26 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
+
+jest.mock('@nestjs/typeorm', () => {
+  const actual = jest.requireActual('@nestjs/typeorm');
+  class MockTypeOrmModule {
+    static forRootAsync() {
+      return { module: MockTypeOrmModule };
+    }
+    static forRoot() {
+      return { module: MockTypeOrmModule };
+    }
+    static forFeature() {
+      return { module: MockTypeOrmModule };
+    }
+  }
+  return {
+    ...actual,
+    TypeOrmModule: MockTypeOrmModule,
+  };
+});
+
 import { AppModule } from './../src/app.module';
 
 describe('AppController (e2e)', () => {
