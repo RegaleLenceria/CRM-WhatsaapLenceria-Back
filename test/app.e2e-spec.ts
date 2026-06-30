@@ -2,6 +2,59 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
+
+jest.mock('@nestjs/typeorm', () => {
+  const actual = jest.requireActual('@nestjs/typeorm');
+  class MockTypeOrmModule {
+    static forRootAsync() {
+      return { module: MockTypeOrmModule };
+    }
+    static forRoot() {
+      return { module: MockTypeOrmModule };
+    }
+    static forFeature(entities: any[]) {
+      const providers = entities.map((entity) => ({
+        provide: actual.getRepositoryToken(entity),
+        useValue: {
+          find: jest.fn().mockResolvedValue([]),
+          findOne: jest.fn().mockResolvedValue(null),
+          save: jest.fn().mockImplementation((val) => Promise.resolve(val)),
+          update: jest.fn().mockResolvedValue({}),
+          create: jest.fn().mockImplementation((dto) => dto),
+        },
+      }));
+      return {
+        module: MockTypeOrmModule,
+        providers: providers,
+        exports: providers,
+      };
+    }
+  }
+  return {
+    ...actual,
+    TypeOrmModule: MockTypeOrmModule,
+  };
+});
+
+jest.mock('@whiskeysockets/baileys', () => {
+  return {
+    __esModule: true,
+    default: jest.fn().mockReturnValue({
+      ev: {
+        on: jest.fn(),
+      },
+      end: jest.fn(),
+    }),
+    useMultiFileAuthState: jest.fn().mockResolvedValue({
+      state: {},
+      saveCreds: jest.fn(),
+    }),
+    DisconnectReason: {
+      loggedOut: 401,
+    },
+  };
+});
+
 import { AppModule } from './../src/app.module';
 
 describe('AppController (e2e)', () => {
