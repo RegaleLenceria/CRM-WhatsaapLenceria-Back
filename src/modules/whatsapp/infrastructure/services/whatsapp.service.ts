@@ -190,6 +190,34 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  async sendMessage(
+    deviceId: string,
+    phone: string,
+    text: string,
+    mediaUrl?: string,
+  ): Promise<any> {
+    const sock = this.sessions.get(deviceId) as
+      ReturnType<typeof makeWASocket> | undefined;
+    if (!sock) {
+      throw new Error(
+        `WhatsApp session for device ${deviceId} is not active or connected.`,
+      );
+    }
+
+    const jid = phone.includes('@s.whatsapp.net')
+      ? phone
+      : `${phone}@s.whatsapp.net`;
+
+    if (mediaUrl) {
+      return await sock.sendMessage(jid, {
+        image: { url: mediaUrl },
+        caption: text,
+      });
+    } else {
+      return await sock.sendMessage(jid, { text });
+    }
+  }
+
   onModuleDestroy() {
     for (const [deviceId, sock] of this.sessions.entries()) {
       try {

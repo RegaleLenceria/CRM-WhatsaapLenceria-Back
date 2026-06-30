@@ -5,6 +5,8 @@ import { BullModule } from '@nestjs/bullmq';
 import { Customer } from '../customers/infrastructure/entities/customer.entity';
 import { CampaignsController } from './infrastructure/controllers/campaigns.controller';
 import { CampaignsService } from './application/services/campaigns.service';
+import { CampaignProcessor } from './infrastructure/processors/campaign.processor';
+import { WhatsappModule } from '../whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -12,9 +14,10 @@ import { CampaignsService } from './application/services/campaigns.service';
     BullModule.registerQueue({
       name: 'campaigns_queue',
     }),
+    WhatsappModule,
   ],
   controllers: [CampaignsController],
-  providers: [CampaignsService],
+  providers: [CampaignsService, CampaignProcessor],
   exports: [BullModule],
 })
 export class CampaignsModule {}
