@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
@@ -59,7 +60,7 @@ jest.mock('@nestjs/bullmq', () => {
     static forRootAsync() {
       return { module: MockBullModule };
     }
-    static registerQueue(config: any) {
+    static registerQueue(config: { name: string }) {
       const providers = [
         {
           provide: actual.getQueueToken(config.name),
@@ -121,8 +122,8 @@ jest.mock('@whiskeysockets/baileys', () => {
       registered: false,
     }),
     BufferJSON: {
-      reviver: (key: string, value: any) => value,
-      replacer: (key: string, value: any) => value,
+      reviver: (key: string, value: unknown) => value,
+      replacer: (key: string, value: unknown) => value,
     },
   };
 });
@@ -153,8 +154,9 @@ describe('AppController (e2e)', () => {
       .get('/health')
       .expect(200)
       .expect((res) => {
-        expect(res.body.status).toBe('ok');
-        expect(res.body.timestamp).toBeDefined();
+        const body = res.body as { status: string; timestamp: string };
+        expect(body.status).toBe('ok');
+        expect(body.timestamp).toBeDefined();
       });
   });
 
