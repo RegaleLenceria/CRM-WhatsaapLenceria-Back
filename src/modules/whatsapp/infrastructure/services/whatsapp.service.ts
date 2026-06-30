@@ -1,8 +1,9 @@
 // src/modules/whatsapp/infrastructure/services/whatsapp.service.ts
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import makeWASocket, { DisconnectReason } from '@whiskeysockets/baileys';
+import makeWASocket from '@whiskeysockets/baileys';
 import pino from 'pino';
+import { Boom } from '@hapi/boom';
 import { Repository, Not, IsNull } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Device } from '../entities/device.entity';
@@ -171,18 +172,30 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         }
 
         if (connection === 'close') {
-          const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
-          const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+          const statusCode = (lastDisconnect?.error as Boom)?.output
+            ?.statusCode;
+          // 401 corresponds to DisconnectReason.loggedOut
+          const shouldReconnect = statusCode !== 401;
 
-          console.log(
-            `WhatsApp connection closed for device ${deviceId}. Reconnecting: ${shouldReconnect}`,
-          );
           this.sessions.delete(deviceId);
           await this.deviceRepository.update(deviceId, { isOnline: false });
 
           if (shouldReconnect) {
+            console.log(
+              `WhatsApp connection closed for device ${deviceId} (status code: ${statusCode}). Attempting to reconnect...`,
+            );
             this.startConnection(deviceId).catch((err) => {
               console.error(`Error reconnecting device ${deviceId}:`, err);
+            });
+          } else {
+            console.log(
+              `WhatsApp connection closed permanently for device ${deviceId} (Logged Out). Cleaning credentials...`,
+            );
+            await this.deviceRepository.update(deviceId, {
+              sessionTokens: null as unknown,
+            } as unknown as Device);
+            this.eventEmitter.emit('whatsapp.connection.logged_out', {
+              deviceId,
             });
           }
         }
