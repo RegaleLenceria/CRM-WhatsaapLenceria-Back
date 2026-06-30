@@ -9,6 +9,7 @@ import { CampaignsService } from './application/services/campaigns.service';
 import { CampaignProcessor } from './infrastructure/processors/campaign.processor';
 import { BirthdayCronService } from './application/services/birthday-cron.service';
 import { SupabaseStorageService } from './infrastructure/services/supabase-storage.service';
+import { CampaignBalanceService } from './domain/services/campaign-balance.service';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 
 @Module({
@@ -25,6 +26,7 @@ import { WhatsappModule } from '../whatsapp/whatsapp.module';
     CampaignProcessor,
     BirthdayCronService,
     SupabaseStorageService,
+    CampaignBalanceService,
   ],
   exports: [BullModule],
 })
