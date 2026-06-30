@@ -36,6 +36,51 @@ jest.mock('@nestjs/typeorm', () => {
   };
 });
 
+jest.mock('bullmq', () => {
+  return {
+    Queue: jest.fn().mockImplementation(() => ({
+      add: jest.fn().mockResolvedValue({ id: 'mock-job-id' }),
+      on: jest.fn(),
+      close: jest.fn().mockResolvedValue(undefined),
+    })),
+    Worker: jest.fn().mockImplementation(() => ({
+      on: jest.fn(),
+      close: jest.fn().mockResolvedValue(undefined),
+    })),
+  };
+});
+
+jest.mock('@nestjs/bullmq', () => {
+  const actual = jest.requireActual('@nestjs/bullmq');
+  class MockBullModule {
+    static forRoot() {
+      return { module: MockBullModule };
+    }
+    static forRootAsync() {
+      return { module: MockBullModule };
+    }
+    static registerQueue(config: any) {
+      const providers = [
+        {
+          provide: actual.getQueueToken(config.name),
+          useValue: {
+            add: jest.fn().mockResolvedValue({ id: 'mock-job-id' }),
+          },
+        },
+      ];
+      return {
+        module: MockBullModule,
+        providers: providers,
+        exports: providers,
+      };
+    }
+  }
+  return {
+    ...actual,
+    BullModule: MockBullModule,
+  };
+});
+
 jest.mock('@whiskeysockets/baileys', () => {
   return {
     __esModule: true,
@@ -51,6 +96,33 @@ jest.mock('@whiskeysockets/baileys', () => {
     }),
     DisconnectReason: {
       loggedOut: 401,
+    },
+    initAuthCreds: () => ({
+      noiseKey: { public: Buffer.alloc(32), private: Buffer.alloc(32) },
+      pairingEphemeralKeyPair: {
+        public: Buffer.alloc(32),
+        private: Buffer.alloc(32),
+      },
+      signedIdentityKey: {
+        public: Buffer.alloc(32),
+        private: Buffer.alloc(32),
+      },
+      signedPreKey: {
+        keyPair: { public: Buffer.alloc(32), private: Buffer.alloc(32) },
+        signature: Buffer.alloc(64),
+        keyId: 1,
+      },
+      registrationId: 1234,
+      advSecretKey: '',
+      processedHistoryMessages: [],
+      nextPreKeyId: 1,
+      firstUnuploadedPreKeyId: 1,
+      accountSettings: { unarchiveChats: false },
+      registered: false,
+    }),
+    BufferJSON: {
+      reviver: (key: string, value: any) => value,
+      replacer: (key: string, value: any) => value,
     },
   };
 });
