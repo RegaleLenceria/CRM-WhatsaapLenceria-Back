@@ -34,11 +34,12 @@ export class WhatsappGateway
   }
 
   async handleConnection(client: Socket) {
-    /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call */
     try {
-      const authHeader = client.handshake?.headers?.authorization as unknown as string | undefined;
-      const authObjectToken = client.handshake?.auth?.token as unknown as string | undefined;
-      const queryToken = client.handshake?.query?.token as unknown as string | undefined;
+      const authHeader = client.handshake?.headers?.authorization;
+      const authObjectToken = client.handshake?.auth?.token as unknown as
+        string | undefined;
+      const queryToken = client.handshake?.query?.token as unknown as
+        string | undefined;
 
       let token: string | null = null;
       if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -50,7 +51,10 @@ export class WhatsappGateway
       } else if (authObjectToken) {
         token = authObjectToken;
       } else if (queryToken) {
-        token = typeof queryToken === 'string' ? queryToken : (queryToken as string[])[0];
+        token =
+          typeof queryToken === 'string'
+            ? queryToken
+            : (queryToken as string[])[0];
       }
 
       if (!token) {
@@ -62,13 +66,13 @@ export class WhatsappGateway
       await this.jwtService.verifyAsync(token);
       console.log(`WebSocket client connected successfully: ${client.id}`);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       console.log(
         `WebSocket client connection rejected: invalid token. Error: ${errorMessage}`,
       );
       client.disconnect();
     }
-    /* eslint-enable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call */
   }
 
   handleDisconnect(client: Socket) {
@@ -78,5 +82,10 @@ export class WhatsappGateway
   @OnEvent('whatsapp.message.new')
   handleNewIncomingMessage(payload: any) {
     this.server.emit('new_message', payload);
+  }
+
+  @OnEvent('whatsapp.chat.status_updated')
+  handleChatStatusUpdated(payload: { messageId: string; status: string }) {
+    this.server.emit('chat_status_updated', payload);
   }
 }
