@@ -88,4 +88,9 @@ export class WhatsappGateway
   handleChatStatusUpdated(payload: { messageId: string; status: string }) {
     this.server.emit('chat_status_updated', payload);
   }
+
+  @OnEvent('whatsapp.connection.logged_out')
+  handleConnectionLoggedOut(payload: { deviceId: string }) {
+    this.server.emit('device_logged_out', payload);
+  }
 }
