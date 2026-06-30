@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -19,6 +20,7 @@ jest.mock('bullmq', () => {
 });
 
 // Mock NestJS BullModule wrapper
+
 jest.mock('@nestjs/bullmq', () => {
   const actual = jest.requireActual('@nestjs/bullmq');
   class MockBullModule {
@@ -28,7 +30,7 @@ jest.mock('@nestjs/bullmq', () => {
     static forRootAsync() {
       return { module: MockBullModule };
     }
-    static registerQueue(config: any) {
+    static registerQueue(config: { name: string }) {
       const providers = [
         {
           provide: actual.getQueueToken(config.name),
@@ -99,8 +101,8 @@ jest.mock('@whiskeysockets/baileys', () => {
       registered: false,
     }),
     BufferJSON: {
-      reviver: (key: string, value: any) => value,
-      replacer: (key: string, value: any) => value,
+      reviver: (key: string, value: unknown) => value,
+      replacer: (key: string, value: unknown) => value,
     },
   };
 });
@@ -141,7 +143,7 @@ describe('WhatsApp Incoming Message Flow (e2e)', () => {
       await messageRepository.delete({ whatsappMessageId: testMsgId });
       await customerRepository.delete({ phone: testPhone });
       await deviceRepository.delete({ id: testDeviceId });
-    } catch (err) {
+    } catch {
       // Ignore if records don't exist
     }
 
@@ -201,7 +203,7 @@ describe('WhatsApp Incoming Message Flow (e2e)', () => {
     };
 
     // Invoke the captured event handler
-    await upsertHandler(mockPayload);
+    upsertHandler(mockPayload);
 
     // Wait 1 second for the async repository operations to finish
     await new Promise((resolve) => setTimeout(resolve, 1000));
