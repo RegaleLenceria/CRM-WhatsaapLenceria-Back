@@ -8,6 +8,7 @@ import { CampaignsController } from './infrastructure/controllers/campaigns.cont
 import { CampaignsService } from './application/services/campaigns.service';
 import { CampaignProcessor } from './infrastructure/processors/campaign.processor';
 import { BirthdayCronService } from './application/services/birthday-cron.service';
+import { SupabaseStorageService } from './infrastructure/services/supabase-storage.service';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 
 @Module({
@@ -19,7 +20,12 @@ import { WhatsappModule } from '../whatsapp/whatsapp.module';
     WhatsappModule,
   ],
   controllers: [CampaignsController],
-  providers: [CampaignsService, CampaignProcessor, BirthdayCronService],
+  providers: [
+    CampaignsService,
+    CampaignProcessor,
+    BirthdayCronService,
+    SupabaseStorageService,
+  ],
   exports: [BullModule],
 })
 export class CampaignsModule {}
