@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import makeWASocket, { DisconnectReason } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import { Repository, Not, IsNull } from 'typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Device } from '../entities/device.entity';
 import { Message } from '../entities/message.entity';
 import { Customer } from '../../../customers/infrastructure/entities/customer.entity';
@@ -26,6 +27,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     private readonly messageRepository: Repository<Message>,
     @InjectRepository(Customer)
     private readonly customerRepository: Repository<Customer>,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async onModuleInit() {
@@ -132,11 +134,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
               timestamp: msg.messageTimestamp
                 ? new Date(Number(msg.messageTimestamp) * 1000)
                 : new Date(),
-              device: { id: deviceId } as any,
+              device: { id: deviceId },
               customer,
             });
 
             const savedMessage = await this.messageRepository.save(newMessage);
+
+            this.eventEmitter.emit('whatsapp.message.new', savedMessage);
 
             if (this.onMessageReceived) {
               this.onMessageReceived(savedMessage);

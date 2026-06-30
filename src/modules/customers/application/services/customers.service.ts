@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Customer } from '../../infrastructure/entities/customer.entity';
@@ -25,7 +29,9 @@ export class CustomersService {
       where: { phone },
     });
     if (!customer) {
-      throw new NotFoundException(`Customer with phone number ${phone} not found`);
+      throw new NotFoundException(
+        `Customer with phone number ${phone} not found`,
+      );
     }
     return customer;
   }
@@ -35,7 +41,9 @@ export class CustomersService {
       where: { phone: dto.phone },
     });
     if (existing) {
-      throw new BadRequestException(`Customer with phone number ${dto.phone} already exists`);
+      throw new BadRequestException(
+        `Customer with phone number ${dto.phone} already exists`,
+      );
     }
 
     const customer = this.customerRepository.create({
@@ -58,7 +66,9 @@ export class CustomersService {
         where: { phone: dto.phone },
       });
       if (existing) {
-        throw new BadRequestException(`Customer with phone number ${dto.phone} already exists`);
+        throw new BadRequestException(
+          `Customer with phone number ${dto.phone} already exists`,
+        );
       }
     }
 
