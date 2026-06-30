@@ -21,6 +21,13 @@ import { WsJwtGuard } from './infrastructure/guards/ws-jwt.guard';
     }),
   ],
   providers: [JwtStrategy, JwtAuthGuard, WsJwtGuard],
-  exports: [TypeOrmModule, PassportModule, JwtModule, JwtStrategy, JwtAuthGuard, WsJwtGuard],
+  exports: [
+    TypeOrmModule,
+    PassportModule,
+    JwtModule,
+    JwtStrategy,
+    JwtAuthGuard,
+    WsJwtGuard,
+  ],
 })
 export class AuthModule {}

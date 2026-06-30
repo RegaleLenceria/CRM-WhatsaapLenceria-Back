@@ -1,5 +1,11 @@
 // src/modules/whatsapp/infrastructure/entities/device.entity.ts
-import { Entity, PrimaryColumn, Column, CreateDateColumn, OneToMany } from 'typeorm';
+import {
+  Entity,
+  PrimaryColumn,
+  Column,
+  CreateDateColumn,
+  OneToMany,
+} from 'typeorm';
 import { Message } from './message.entity';
 
 @Entity('devices')
