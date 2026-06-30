@@ -1,5 +1,9 @@
 // src/modules/whatsapp/infrastructure/adapters/postgres-auth-state.adapter.ts
-import { BufferJSON, initAuthCreds, AuthenticationState } from '@whiskeysockets/baileys';
+import {
+  BufferJSON,
+  initAuthCreds,
+  AuthenticationState,
+} from '@whiskeysockets/baileys';
 import { Repository } from 'typeorm';
 import { Device } from '../entities/device.entity';
 
@@ -25,14 +29,21 @@ export async function usePostgresAuthState(
 
   if (device.sessionTokens) {
     try {
-      const sessionData = typeof device.sessionTokens === 'string'
-        ? JSON.parse(device.sessionTokens, BufferJSON.reviver)
-        : JSON.parse(JSON.stringify(device.sessionTokens), BufferJSON.reviver);
+      const sessionData =
+        typeof device.sessionTokens === 'string'
+          ? JSON.parse(device.sessionTokens, BufferJSON.reviver)
+          : JSON.parse(
+              JSON.stringify(device.sessionTokens),
+              BufferJSON.reviver,
+            );
 
       creds = sessionData.creds;
       keys = sessionData.keys || {};
     } catch (err) {
-      console.error(`Error parsing sessionTokens for device ${deviceId}, initializing new auth state:`, err);
+      console.error(
+        `Error parsing sessionTokens for device ${deviceId}, initializing new auth state:`,
+        err,
+      );
       creds = initAuthCreds();
       keys = {};
     }
