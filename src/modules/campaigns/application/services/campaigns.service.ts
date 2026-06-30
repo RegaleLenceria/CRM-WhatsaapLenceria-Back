@@ -5,6 +5,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { Customer } from '../../../customers/infrastructure/entities/customer.entity';
 import { CreateCampaignDto } from '../dtos/create-campaign.dto';
+import { CampaignBalanceService } from '../../domain/services/campaign-balance.service';
 
 @Injectable()
 export class CampaignsService {
@@ -13,6 +14,7 @@ export class CampaignsService {
     private readonly customerRepository: Repository<Customer>,
     @InjectQueue('campaigns_queue')
     private readonly campaignsQueue: Queue,
+    private readonly campaignBalanceService: CampaignBalanceService,
   ) {}
 
   async createAndDispatchCampaign(dto: CreateCampaignDto) {
@@ -26,16 +28,28 @@ export class CampaignsService {
 
     const customers = await this.customerRepository.find({ where });
 
-    for (let index = 0; index < customers.length; index++) {
-      const customer = customers[index];
-      const assignedDeviceId = dto.deviceIds[index % dto.deviceIds.length];
+    if (customers.length === 0) {
+      return {
+        totalCustomers: 0,
+        devicesUsed: dto.deviceIds.length,
+        message: 'No se encontraron clientes para la campaña',
+      };
+    }
+
+    const distributions = this.campaignBalanceService.distributeLoad(
+      customers,
+      dto.deviceIds,
+    );
+
+    for (const distribution of distributions) {
+      const { customer, deviceId } = distribution;
 
       await this.campaignsQueue.add('send_campaign_message', {
         customerId: customer.id,
         phone: customer.phone,
         text: dto.text,
         mediaUrl: dto.mediaUrl,
-        deviceId: assignedDeviceId,
+        deviceId: deviceId,
       });
     }
 
