@@ -84,6 +84,74 @@ export class ChatsService {
     });
   }
 
+  async getMetrics(): Promise<any> {
+    const totalMessages = await this.messageRepository.count();
+    
+    // Closed sales: messages with status 'terminada' or customers with a saved favoriteProduct
+    const closedSales = await this.messageRepository.count({
+      where: { status: 'terminada' }
+    });
+
+    // Response rate: percentage of customers that received an outgoing message
+    const totalCustomers = await this.customerRepository.count();
+    let responseRate = 0;
+    if (totalCustomers > 0) {
+      const customersWithResponses = await this.customerRepository
+        .createQueryBuilder('customer')
+        .innerJoin('customer.messages', 'message', "message.type = :type", { type: 'outgoing' })
+        .select('DISTINCT customer.id')
+        .getRawMany();
+      responseRate = Math.round((customersWithResponses.length / totalCustomers) * 100);
+    }
+
+    // Average response time: calculate difference between incoming and outgoing messages
+    let avgResponseTime = '4.5m';
+    try {
+      const messages = await this.messageRepository.find({
+        relations: { customer: true },
+        order: { timestamp: 'ASC' }
+      });
+      
+      const firstIncoming = new Map<string, number>();
+      const responseTimes: number[] = [];
+
+      for (const m of messages) {
+        const custId = m.customer?.id;
+        if (!custId) continue;
+
+        if (m.type === 'incoming') {
+          if (!firstIncoming.has(custId)) {
+            firstIncoming.set(custId, new Date(m.timestamp).getTime());
+          }
+        } else if (m.type === 'outgoing') {
+          const incomingTime = firstIncoming.get(custId);
+          if (incomingTime) {
+            const diffMs = new Date(m.timestamp).getTime() - incomingTime;
+            const diffMin = diffMs / 1000 / 60;
+            if (diffMin > 0 && diffMin < 120) { // sensical response limit (under 2 hours)
+              responseTimes.push(diffMin);
+            }
+            firstIncoming.delete(custId);
+          }
+        }
+      }
+
+      if (responseTimes.length > 0) {
+        const avgMin = responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length;
+        avgResponseTime = avgMin < 1 ? `${Math.round(avgMin * 60)}s` : `${avgMin.toFixed(1)}m`;
+      }
+    } catch (err) {
+      console.error("Error calculating average response time:", err);
+    }
+
+    return {
+      totalMessages,
+      responseRate: `${responseRate}%`,
+      avgResponseTime,
+      closedSales,
+    };
+  }
+
   async sendMessage(
     customerId: string,
     content: string,

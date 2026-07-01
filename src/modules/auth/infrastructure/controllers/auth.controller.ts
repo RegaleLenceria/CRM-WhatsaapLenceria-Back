@@ -1,9 +1,17 @@
-import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, HttpStatus, Get, UseGuards } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { User } from '../entities/user.entity';
+import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly jwtService: JwtService) {}
+  constructor(
+    private readonly jwtService: JwtService,
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+  ) {}
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -29,5 +37,27 @@ export class AuthController {
         role,
       },
     };
+  }
+
+  @Get('users')
+  @UseGuards(JwtAuthGuard)
+  async getUsers() {
+    return this.userRepository.find({
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  @Post('users')
+  @UseGuards(JwtAuthGuard)
+  async createUser(@Body() body: any) {
+    const { name, email, password, role, status } = body;
+    const user = this.userRepository.create({
+      name,
+      email,
+      passwordHash: password || 'default',
+      role: role || 'asesora',
+      status: status || 'online',
+    });
+    return this.userRepository.save(user);
   }
 }

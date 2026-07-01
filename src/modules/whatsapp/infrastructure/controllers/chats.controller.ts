@@ -13,6 +13,11 @@ export class ChatsController {
     return this.chatsService.getChats();
   }
 
+  @Get('metrics')
+  async getMetrics() {
+    return this.chatsService.getMetrics();
+  }
+
   @Get(':customerId/messages')
   async getMessages(@Param('customerId') customerId: string) {
     return this.chatsService.getMessages(customerId);

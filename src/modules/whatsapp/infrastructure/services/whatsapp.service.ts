@@ -94,7 +94,31 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
     sock.ev.on('messaging-history.set', (data) => {
       void (async () => {
-        const { messages } = data;
+        const { messages, contacts } = data;
+        
+        if (contacts) {
+          console.log(`Received initial WhatsApp contacts: ${contacts.length}`);
+          for (const contact of contacts) {
+            const phone = contact.id.split('@')[0];
+            if (phone && !contact.id.endsWith('@g.us') && phone !== 'status') {
+              const name = contact.name || contact.notify || contact.verifiedName;
+              if (name) {
+                let customer = await this.customerRepository.findOne({ where: { phone } });
+                if (customer) {
+                  customer.name = name;
+                  await this.customerRepository.save(customer);
+                } else {
+                  customer = this.customerRepository.create({
+                    phone,
+                    name,
+                  });
+                  await this.customerRepository.save(customer);
+                }
+              }
+            }
+          }
+        }
+
         console.log(`Received initial WhatsApp history: ${messages?.length} messages`);
         if (messages) {
           for (const msg of messages) {
@@ -243,6 +267,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
           phone,
           name: msg.pushName || `Cliente ${phone}`,
         });
+        customer = await this.customerRepository.save(customer);
+      } else if (msg.pushName && (customer.name.startsWith('Cliente ') || customer.name === `Cliente ${phone}`)) {
+        customer.name = msg.pushName;
         customer = await this.customerRepository.save(customer);
       }
 
