@@ -87,72 +87,24 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         }
 
         for (const msg of m.messages) {
-          try {
-            if (msg.key.fromMe === true || !msg.key.remoteJid) {
-              continue;
-            }
+          await this.processMessage(msg, deviceId);
+        }
+      })();
+    });
 
-            const whatsappMessageId = msg.key.id;
-            if (!whatsappMessageId) {
-              continue;
-            }
-
-            const phone = msg.key.remoteJid.split('@')[0];
-            const content =
-              msg.message?.conversation ||
-              msg.message?.extendedTextMessage?.text ||
-              msg.message?.imageMessage?.caption ||
-              '';
-
-            if (!content) {
-              continue;
-            }
-
-            const existingMessage = await this.messageRepository.findOne({
-              where: { whatsappMessageId },
-            });
-            if (existingMessage) {
-              continue;
-            }
-
-            let customer = await this.customerRepository.findOne({
-              where: { phone },
-            });
-            if (!customer) {
-              customer = this.customerRepository.create({
-                phone,
-                name: msg.pushName || `Cliente ${phone}`,
-              });
-              customer = await this.customerRepository.save(customer);
-            }
-
-            const newMessage = this.messageRepository.create({
-              whatsappMessageId,
-              type: 'incoming',
-              content,
-              status: 'pendiente',
-              isRead: false,
-              timestamp: msg.messageTimestamp
-                ? new Date(Number(msg.messageTimestamp) * 1000)
-                : new Date(),
-              device: { id: deviceId },
-              customer,
-            });
-
-            const savedMessage = await this.messageRepository.save(newMessage);
-
-            this.eventEmitter.emit('whatsapp.message.new', savedMessage);
-
-            if (this.onMessageReceived) {
-              this.onMessageReceived(savedMessage);
-            }
-          } catch (error) {
-            console.error(
-              `Error processing incoming WhatsApp message for device ${deviceId}:`,
-              error,
-            );
+    sock.ev.on('messaging-history.set', (data) => {
+      void (async () => {
+        const { messages } = data;
+        console.log(`Received initial WhatsApp history: ${messages?.length} messages`);
+        if (messages) {
+          for (const msg of messages) {
+            await this.processMessage(msg, deviceId);
           }
         }
+        // Force reload in frontend once history sync completes
+        this.eventEmitter.emit('whatsapp.connection.connected', {
+          deviceId,
+        });
       })();
     });
 
@@ -169,6 +121,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
             `WhatsApp connection opened successfully for device ${deviceId}`,
           );
           await this.deviceRepository.update(deviceId, { isOnline: true });
+          this.eventEmitter.emit('whatsapp.connection.connected', {
+            deviceId,
+          });
         }
 
         if (connection === 'close') {
@@ -228,6 +183,97 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       });
     } else {
       return await sock.sendMessage(jid, { text });
+    }
+  }
+
+  async getDevices(): Promise<Device[]> {
+    return this.deviceRepository.find({
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async createDevice(id: string, name: string, phoneNumber: string): Promise<Device> {
+    const device = this.deviceRepository.create({
+      id,
+      name,
+      phoneNumber,
+      isOnline: false,
+    });
+    return this.deviceRepository.save(device);
+  }
+
+  private async processMessage(msg: any, deviceId: string) {
+    try {
+      if (!msg.key.remoteJid || msg.key.remoteJid.endsWith('@g.us')) {
+        return;
+      }
+
+      const whatsappMessageId = msg.key.id;
+      if (!whatsappMessageId) {
+        return;
+      }
+
+      const phone = msg.key.remoteJid.split('@')[0];
+      if (phone === 'status' || msg.key.remoteJid === 'status@broadcast') {
+        return;
+      }
+
+      const content =
+        msg.message?.conversation ||
+        msg.message?.extendedTextMessage?.text ||
+        msg.message?.imageMessage?.caption ||
+        '';
+
+      if (!content) {
+        return;
+      }
+
+      const existingMessage = await this.messageRepository.findOne({
+        where: { whatsappMessageId },
+      });
+      if (existingMessage) {
+        return;
+      }
+
+      let customer = await this.customerRepository.findOne({
+        where: { phone },
+      });
+      if (!customer) {
+        customer = this.customerRepository.create({
+          phone,
+          name: msg.pushName || `Cliente ${phone}`,
+        });
+        customer = await this.customerRepository.save(customer);
+      }
+
+      const type = msg.key.fromMe ? 'outgoing' : 'incoming';
+      const status = msg.key.fromMe ? 'en_atencion' : 'pendiente';
+
+      const newMessage = this.messageRepository.create({
+        whatsappMessageId,
+        type,
+        content,
+        status,
+        isRead: msg.key.fromMe ? true : false,
+        timestamp: msg.messageTimestamp
+          ? new Date(Number(msg.messageTimestamp) * 1000)
+          : new Date(),
+        device: { id: deviceId },
+        customer,
+      });
+
+      const savedMessage = await this.messageRepository.save(newMessage);
+
+      this.eventEmitter.emit('whatsapp.message.new', savedMessage);
+
+      if (this.onMessageReceived) {
+        this.onMessageReceived(savedMessage);
+      }
+    } catch (error) {
+      console.error(
+        `Error processing WhatsApp message for device ${deviceId}:`,
+        error,
+      );
     }
   }
 

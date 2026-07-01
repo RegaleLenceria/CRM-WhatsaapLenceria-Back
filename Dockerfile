@@ -1,5 +1,5 @@
 # Stage 1: Build the NestJS application
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 # Install build dependencies for native compilation (e.g. cryptography in Baileys)
 RUN apk add --no-cache python3 make g++
@@ -15,7 +15,7 @@ COPY . .
 RUN npm run build
 
 # Stage 2: Production image
-FROM node:20-alpine AS production
+FROM node:22-alpine AS production
 
 WORKDIR /usr/src/app
 

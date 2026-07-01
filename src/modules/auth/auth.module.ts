@@ -7,6 +7,7 @@ import { User } from './infrastructure/entities/user.entity';
 import { JwtStrategy } from './infrastructure/strategies/jwt.strategy';
 import { JwtAuthGuard } from './infrastructure/guards/jwt-auth.guard';
 import { WsJwtGuard } from './infrastructure/guards/ws-jwt.guard';
+import { AuthController } from './infrastructure/controllers/auth.controller';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { WsJwtGuard } from './infrastructure/guards/ws-jwt.guard';
       }),
     }),
   ],
+  controllers: [AuthController],
   providers: [JwtStrategy, JwtAuthGuard, WsJwtGuard],
   exports: [
     TypeOrmModule,

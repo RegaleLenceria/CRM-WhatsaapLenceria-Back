@@ -93,4 +93,9 @@ export class WhatsappGateway
   handleConnectionLoggedOut(payload: { deviceId: string }) {
     this.server.emit('device_logged_out', payload);
   }
+
+  @OnEvent('whatsapp.connection.connected')
+  handleConnectionConnected(payload: { deviceId: string }) {
+    this.server.emit('device_connected', payload);
+  }
 }
