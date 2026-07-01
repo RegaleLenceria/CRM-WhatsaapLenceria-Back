@@ -142,103 +142,117 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
     sock.ev.on('messaging-history.set', (data) => {
       void (async () => {
-        const { messages, contacts } = data;
-        
-        if (contacts && contacts.length > 0) {
-          console.log(`Received initial WhatsApp contacts: ${contacts.length}`);
-          const contactsMap = new Map<string, string>();
-          for (const contact of contacts) {
-            const phone = contact.id.split('@')[0].split(':')[0];
-            if (phone && contact.id.endsWith('@s.whatsapp.net')) {
-              const name = contact.name || contact.notify || contact.verifiedName;
-              if (name) {
-                contactsMap.set(phone, name);
+        try {
+          const { messages, contacts } = data;
+          
+          if (contacts && contacts.length > 0) {
+            console.log(`Received initial WhatsApp contacts: ${contacts.length}`);
+            const contactsMap = new Map<string, string>();
+            for (const contact of contacts) {
+              const phone = contact.id.split('@')[0].split(':')[0];
+              if (phone && contact.id.endsWith('@s.whatsapp.net')) {
+                const name = contact.name || contact.notify || contact.verifiedName;
+                if (name) {
+                  contactsMap.set(phone, name);
+                }
+              }
+            }
+            const validContacts = Array.from(contactsMap.entries()).map(([phone, name]) => ({ phone, name }));
+            
+            if (validContacts.length > 0) {
+              const chunkSize = 500;
+              for (let i = 0; i < validContacts.length; i += chunkSize) {
+                await this.customerRepository.upsert(validContacts.slice(i, i + chunkSize), ['phone']);
               }
             }
           }
-          const validContacts = Array.from(contactsMap.entries()).map(([phone, name]) => ({ phone, name }));
-          
-          if (validContacts.length > 0) {
-            const chunkSize = 500;
-            for (let i = 0; i < validContacts.length; i += chunkSize) {
-              await this.customerRepository.upsert(validContacts.slice(i, i + chunkSize), ['phone']);
-            }
+
+          console.log(`Received initial WhatsApp history: ${messages?.length || 0} messages`);
+          if (messages && messages.length > 0) {
+             const allCustomers = await this.customerRepository.find({ select: { id: true, phone: true, name: true } });
+             const customerMap = new Map(allCustomers.map(c => [c.phone, c]));
+             const messagesToInsert: Partial<Message>[] = [];
+
+             for (const msg of messages) {
+               if (!msg.key.remoteJid || !msg.key.remoteJid.endsWith('@s.whatsapp.net')) continue;
+               const whatsappMessageId = msg.key.id;
+               if (!whatsappMessageId) continue;
+               
+               const phone = msg.key.remoteJid.split('@')[0].split(':')[0];
+               if (phone === 'status' || msg.key.remoteJid === 'status@broadcast') continue;
+               
+               let content = msg.message?.conversation || msg.message?.extendedTextMessage?.text || msg.message?.imageMessage?.caption || '';
+               
+               if (msg.message?.imageMessage) {
+                 content = content ? `[image] ${content}` : `[image]`;
+               }
+               if (!content) continue;
+
+               let customer = customerMap.get(phone);
+               if (!customer) {
+                 customer = this.customerRepository.create({ phone, name: msg.pushName || `Cliente ${phone}` });
+                 customer = await this.customerRepository.save(customer);
+                 customerMap.set(phone, customer);
+               } else if (msg.pushName && (customer.name.startsWith('Cliente ') || customer.name === `Cliente ${phone}`)) {
+                 customer.name = msg.pushName;
+                 this.customerRepository.save(customer).catch(() => {});
+               }
+
+               const type = msg.key.fromMe ? 'outgoing' : 'incoming';
+               const status = msg.key.fromMe ? 'en_atencion' : 'pendiente';
+
+               messagesToInsert.push({
+                 whatsappMessageId,
+                 type,
+                 content,
+                 status,
+                 isRead: msg.key.fromMe ? true : false,
+                 timestamp: msg.messageTimestamp ? new Date(Number(msg.messageTimestamp) * 1000) : new Date(),
+                 device: { id: deviceId },
+                 customer: { id: customer.id }
+               } as any);
+             }
+
+             if (messagesToInsert.length > 0) {
+               // Find existing messages to avoid duplicates since we can't upsert without unique constraint
+               const chunkSize = 500;
+               const existingIds = new Set<string>();
+               
+               for (let i = 0; i < messagesToInsert.length; i += chunkSize) {
+                 const chunk = messagesToInsert.slice(i, i + chunkSize);
+                 const existingMessages = await this.messageRepository.find({
+                   where: { whatsappMessageId: In(chunk.map(m => m.whatsappMessageId as string)) },
+                   select: { whatsappMessageId: true }
+                 });
+                 existingMessages.forEach(m => existingIds.add(m.whatsappMessageId));
+               }
+
+               const newMessages = messagesToInsert.filter(m => !existingIds.has(m.whatsappMessageId as string));
+
+               for (let i = 0; i < newMessages.length; i += chunkSize) {
+                 const chunk = newMessages.slice(i, i + chunkSize);
+                 await this.messageRepository
+                   .createQueryBuilder()
+                   .insert()
+                   .into(Message)
+                   .values(chunk)
+                   .execute();
+               }
+             }
           }
+          
+          console.log(`Finished processing WhatsApp history for device ${deviceId}`);
+          // Force reload in frontend once history sync completes
+          this.eventEmitter.emit('whatsapp.connection.connected', {
+            deviceId,
+          });
+        } catch (error) {
+          console.error(`Error processing WhatsApp history for device ${deviceId}:`, error);
+          // Emit connected anyway so the frontend doesn't hang forever
+          this.eventEmitter.emit('whatsapp.connection.connected', {
+            deviceId,
+          });
         }
-
-        console.log(`Received initial WhatsApp history: ${messages?.length || 0} messages`);
-        if (messages && messages.length > 0) {
-           const allCustomers = await this.customerRepository.find({ select: { id: true, phone: true, name: true } });
-           const customerMap = new Map(allCustomers.map(c => [c.phone, c]));
-           const messagesToInsert: Partial<Message>[] = [];
-
-           for (const msg of messages) {
-             if (!msg.key.remoteJid || !msg.key.remoteJid.endsWith('@s.whatsapp.net')) continue;
-             const whatsappMessageId = msg.key.id;
-             if (!whatsappMessageId) continue;
-             
-             const phone = msg.key.remoteJid.split('@')[0].split(':')[0];
-             if (phone === 'status' || msg.key.remoteJid === 'status@broadcast') continue;
-             
-             let content = msg.message?.conversation || msg.message?.extendedTextMessage?.text || msg.message?.imageMessage?.caption || '';
-             
-             if (msg.message?.imageMessage) {
-               content = content ? `[image] ${content}` : `[image]`;
-             }
-             if (!content) continue;
-
-             let customer = customerMap.get(phone);
-             if (!customer) {
-               customer = this.customerRepository.create({ phone, name: msg.pushName || `Cliente ${phone}` });
-               customer = await this.customerRepository.save(customer);
-               customerMap.set(phone, customer);
-             } else if (msg.pushName && (customer.name.startsWith('Cliente ') || customer.name === `Cliente ${phone}`)) {
-               customer.name = msg.pushName;
-               this.customerRepository.save(customer).catch(() => {});
-             }
-
-             const type = msg.key.fromMe ? 'outgoing' : 'incoming';
-             const status = msg.key.fromMe ? 'en_atencion' : 'pendiente';
-
-             messagesToInsert.push({
-               whatsappMessageId,
-               type,
-               content,
-               status,
-               isRead: msg.key.fromMe ? true : false,
-               timestamp: msg.messageTimestamp ? new Date(Number(msg.messageTimestamp) * 1000) : new Date(),
-               device: { id: deviceId },
-               customer: { id: customer.id }
-             } as any);
-           }
-
-           if (messagesToInsert.length > 0) {
-             // Find existing messages to avoid duplicates since we can't upsert without unique constraint
-             const existingMessages = await this.messageRepository.find({
-               where: { whatsappMessageId: In(messagesToInsert.map(m => m.whatsappMessageId as string)) },
-               select: { whatsappMessageId: true }
-             });
-             const existingIds = new Set(existingMessages.map(m => m.whatsappMessageId));
-             const newMessages = messagesToInsert.filter(m => !existingIds.has(m.whatsappMessageId as string));
-
-             const chunkSize = 500;
-             for (let i = 0; i < newMessages.length; i += chunkSize) {
-               const chunk = newMessages.slice(i, i + chunkSize);
-               await this.messageRepository
-                 .createQueryBuilder()
-                 .insert()
-                 .into(Message)
-                 .values(chunk)
-                 .execute();
-             }
-           }
-        }
-        
-        console.log(`Finished processing WhatsApp history for device ${deviceId}`);
-        // Force reload in frontend once history sync completes
-        this.eventEmitter.emit('whatsapp.connection.connected', {
-          deviceId,
-        });
       })();
     });
 
