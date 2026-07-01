@@ -58,11 +58,19 @@ export class BirthdayCronService {
         `Found ${customers.length} customers celebrating tomorrow. Distributing amongst ${activeDevices.length} online devices.`,
       );
 
+      const settings = await this.customerRepository.query(`
+        SELECT value FROM settings WHERE key = 'birthday_message_template' LIMIT 1
+      `);
+      const template = settings?.[0]?.value || 
+        '¡Hola {nombre}! En Regale Lencería vimos que mañana es tu cumpleaños 🎉. Como sabemos que te encantan los {interes}, queremos regalarte un descuento especial...';
+
       for (let index = 0; index < customers.length; index++) {
         const customer = customers[index];
         const assignedDeviceId = activeDevices[index % activeDevices.length].id;
 
-        const message = `¡Hola ${customer.name}! En Regale Lencería vimos que mañana es tu cumpleaños 🎉. Como sabemos que te encantan los ${customer.favoriteProduct || 'conjuntos'}, queremos regalarte un descuento especial...`;
+        const message = template
+          .replace('{nombre}', customer.name)
+          .replace('{interes}', customer.favoriteProduct || 'conjuntos');
 
         await this.campaignsQueue.add('send_campaign_message', {
           phone: customer.phone,

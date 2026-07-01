@@ -29,4 +29,14 @@ export class WhatsappController {
       message: `Connection initialization started for device ${deviceId}`,
     };
   }
+
+  @Get('settings/:key')
+  async getSetting(@Param('key') key: string) {
+    return this.whatsappService.getSetting(key);
+  }
+
+  @Post('settings')
+  async saveSetting(@Body() body: { key: string; value: string }) {
+    return this.whatsappService.saveSetting(body.key, body.value);
+  }
 }

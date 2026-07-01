@@ -1,14 +1,15 @@
 // src/modules/whatsapp/infrastructure/services/whatsapp.service.ts
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import makeWASocket from '@whiskeysockets/baileys';
+import makeWASocket, { downloadMediaMessage } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import { Boom } from '@hapi/boom';
-import { Repository, Not, IsNull } from 'typeorm';
+import { Repository, Not, IsNull, In } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Device } from '../entities/device.entity';
 import { Message } from '../entities/message.entity';
 import { Customer } from '../../../customers/infrastructure/entities/customer.entity';
+import { Setting } from '../entities/setting.entity';
 import { usePostgresAuthState } from '../adapters/postgres-auth-state.adapter';
 
 @Injectable()
@@ -28,11 +29,22 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     private readonly messageRepository: Repository<Message>,
     @InjectRepository(Customer)
     private readonly customerRepository: Repository<Customer>,
+    @InjectRepository(Setting)
+    private readonly settingRepository: Repository<Setting>,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async onModuleInit() {
     try {
+      // Purge any corrupted LID, newsletter, or group chats from the customers table
+      console.log('Purging invalid/encrypted contacts from the database...');
+      await this.customerRepository.query(`
+        DELETE FROM customers 
+        WHERE phone NOT SIMILAR TO '[0-9]+'
+           OR LENGTH(phone) > 15
+      `);
+      console.log('Database cleanup completed.');
+
       // Find all devices with saved session credentials
       const savedDevices = await this.deviceRepository.find({
         where: {
@@ -92,39 +104,137 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       })();
     });
 
+    sock.ev.on('message-receipt.update', (receipts) => {
+      void (async () => {
+        for (const r of receipts) {
+          const whatsappMessageId = r.key.id;
+          if (!whatsappMessageId) continue;
+
+          const message = await this.messageRepository.findOne({
+            where: { whatsappMessageId },
+            relations: { customer: true },
+          });
+
+          if (message && message.type === 'outgoing') {
+            // Check if readTimestamp exists in receipt update payload
+            const isReadUpdate = r.receipt && 
+              (r.receipt.readTimestamp !== undefined && r.receipt.readTimestamp !== null);
+
+            if (isReadUpdate) {
+              message.isRead = true;
+              message.receipt = 'read';
+            } else if (message.receipt !== 'read') {
+              message.receipt = 'delivered';
+            }
+            await this.messageRepository.save(message);
+
+            this.eventEmitter.emit('whatsapp.message.receipt', {
+              messageId: message.id,
+              whatsappMessageId,
+              chatId: message.customer?.id,
+              receipt: message.receipt,
+              isRead: message.isRead,
+            });
+          }
+        }
+      })();
+    });
+
     sock.ev.on('messaging-history.set', (data) => {
       void (async () => {
         const { messages, contacts } = data;
         
-        if (contacts) {
+        if (contacts && contacts.length > 0) {
           console.log(`Received initial WhatsApp contacts: ${contacts.length}`);
+          const contactsMap = new Map<string, string>();
           for (const contact of contacts) {
-            const phone = contact.id.split('@')[0];
-            if (phone && !contact.id.endsWith('@g.us') && phone !== 'status') {
+            const phone = contact.id.split('@')[0].split(':')[0];
+            if (phone && contact.id.endsWith('@s.whatsapp.net')) {
               const name = contact.name || contact.notify || contact.verifiedName;
               if (name) {
-                let customer = await this.customerRepository.findOne({ where: { phone } });
-                if (customer) {
-                  customer.name = name;
-                  await this.customerRepository.save(customer);
-                } else {
-                  customer = this.customerRepository.create({
-                    phone,
-                    name,
-                  });
-                  await this.customerRepository.save(customer);
-                }
+                contactsMap.set(phone, name);
               }
+            }
+          }
+          const validContacts = Array.from(contactsMap.entries()).map(([phone, name]) => ({ phone, name }));
+          
+          if (validContacts.length > 0) {
+            const chunkSize = 500;
+            for (let i = 0; i < validContacts.length; i += chunkSize) {
+              await this.customerRepository.upsert(validContacts.slice(i, i + chunkSize), ['phone']);
             }
           }
         }
 
-        console.log(`Received initial WhatsApp history: ${messages?.length} messages`);
-        if (messages) {
-          for (const msg of messages) {
-            await this.processMessage(msg, deviceId);
-          }
+        console.log(`Received initial WhatsApp history: ${messages?.length || 0} messages`);
+        if (messages && messages.length > 0) {
+           const allCustomers = await this.customerRepository.find({ select: { id: true, phone: true, name: true } });
+           const customerMap = new Map(allCustomers.map(c => [c.phone, c]));
+           const messagesToInsert: Partial<Message>[] = [];
+
+           for (const msg of messages) {
+             if (!msg.key.remoteJid || !msg.key.remoteJid.endsWith('@s.whatsapp.net')) continue;
+             const whatsappMessageId = msg.key.id;
+             if (!whatsappMessageId) continue;
+             
+             const phone = msg.key.remoteJid.split('@')[0].split(':')[0];
+             if (phone === 'status' || msg.key.remoteJid === 'status@broadcast') continue;
+             
+             let content = msg.message?.conversation || msg.message?.extendedTextMessage?.text || msg.message?.imageMessage?.caption || '';
+             
+             if (msg.message?.imageMessage) {
+               content = content ? `[image] ${content}` : `[image]`;
+             }
+             if (!content) continue;
+
+             let customer = customerMap.get(phone);
+             if (!customer) {
+               customer = this.customerRepository.create({ phone, name: msg.pushName || `Cliente ${phone}` });
+               customer = await this.customerRepository.save(customer);
+               customerMap.set(phone, customer);
+             } else if (msg.pushName && (customer.name.startsWith('Cliente ') || customer.name === `Cliente ${phone}`)) {
+               customer.name = msg.pushName;
+               this.customerRepository.save(customer).catch(() => {});
+             }
+
+             const type = msg.key.fromMe ? 'outgoing' : 'incoming';
+             const status = msg.key.fromMe ? 'en_atencion' : 'pendiente';
+
+             messagesToInsert.push({
+               whatsappMessageId,
+               type,
+               content,
+               status,
+               isRead: msg.key.fromMe ? true : false,
+               timestamp: msg.messageTimestamp ? new Date(Number(msg.messageTimestamp) * 1000) : new Date(),
+               device: { id: deviceId },
+               customer: { id: customer.id }
+             } as any);
+           }
+
+           if (messagesToInsert.length > 0) {
+             // Find existing messages to avoid duplicates since we can't upsert without unique constraint
+             const existingMessages = await this.messageRepository.find({
+               where: { whatsappMessageId: In(messagesToInsert.map(m => m.whatsappMessageId as string)) },
+               select: { whatsappMessageId: true }
+             });
+             const existingIds = new Set(existingMessages.map(m => m.whatsappMessageId));
+             const newMessages = messagesToInsert.filter(m => !existingIds.has(m.whatsappMessageId as string));
+
+             const chunkSize = 500;
+             for (let i = 0; i < newMessages.length; i += chunkSize) {
+               const chunk = newMessages.slice(i, i + chunkSize);
+               await this.messageRepository
+                 .createQueryBuilder()
+                 .insert()
+                 .into(Message)
+                 .values(chunk)
+                 .execute();
+             }
+           }
         }
+        
+        console.log(`Finished processing WhatsApp history for device ${deviceId}`);
         // Force reload in frontend once history sync completes
         this.eventEmitter.emit('whatsapp.connection.connected', {
           deviceId,
@@ -201,10 +311,21 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       : `${phone}@s.whatsapp.net`;
 
     if (mediaUrl) {
-      return await sock.sendMessage(jid, {
-        image: { url: mediaUrl },
-        caption: text,
-      });
+      if (mediaUrl.startsWith('data:')) {
+        const mimeType = mediaUrl.split(';')[0].split(':')[1];
+        const base64Data = mediaUrl.split(',')[1];
+        const buffer = Buffer.from(base64Data, 'base64');
+        return await sock.sendMessage(jid, {
+          image: buffer,
+          caption: text || '',
+          mimetype: mimeType,
+        });
+      } else {
+        return await sock.sendMessage(jid, {
+          image: { url: mediaUrl },
+          caption: text || '',
+        });
+      }
     } else {
       return await sock.sendMessage(jid, { text });
     }
@@ -228,7 +349,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
   private async processMessage(msg: any, deviceId: string) {
     try {
-      if (!msg.key.remoteJid || msg.key.remoteJid.endsWith('@g.us')) {
+      if (!msg.key.remoteJid || !msg.key.remoteJid.endsWith('@s.whatsapp.net')) {
         return;
       }
 
@@ -237,16 +358,38 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
-      const phone = msg.key.remoteJid.split('@')[0];
+      const phone = msg.key.remoteJid.split('@')[0].split(':')[0];
       if (phone === 'status' || msg.key.remoteJid === 'status@broadcast') {
         return;
       }
 
-      const content =
+      const sock = this.sessions.get(deviceId);
+      let content =
         msg.message?.conversation ||
         msg.message?.extendedTextMessage?.text ||
         msg.message?.imageMessage?.caption ||
         '';
+
+      if (msg.message?.imageMessage && sock) {
+        try {
+          const buffer = await downloadMediaMessage(
+            msg,
+            'buffer',
+            {},
+            {
+              logger: console as any,
+              reuploadRequest: sock.updateMediaMessage,
+            },
+          );
+          if (buffer) {
+            const base64 = buffer.toString('base64');
+            const caption = msg.message.imageMessage.caption || '';
+            content = `[image:data:image/jpeg;base64,${base64}]${caption}`;
+          }
+        } catch (err) {
+          console.error('Error downloading incoming WhatsApp image:', err);
+        }
+      }
 
       if (!content) {
         return;
@@ -302,6 +445,20 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         error,
       );
     }
+  }
+
+  async getSetting(key: string): Promise<Setting | null> {
+    return this.settingRepository.findOne({ where: { key } });
+  }
+
+  async saveSetting(key: string, value: string): Promise<Setting> {
+    let setting = await this.settingRepository.findOne({ where: { key } });
+    if (setting) {
+      setting.value = value;
+    } else {
+      setting = this.settingRepository.create({ key, value });
+    }
+    return this.settingRepository.save(setting);
   }
 
   onModuleDestroy() {

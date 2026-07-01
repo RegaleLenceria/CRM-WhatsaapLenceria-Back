@@ -23,6 +23,9 @@ export class Message {
   @Column({ type: 'boolean', default: false })
   isRead: boolean;
 
+  @Column({ type: 'varchar', default: 'sent' })
+  receipt: string;
+
   @Column({ type: 'timestamp' })
   timestamp: Date;
 

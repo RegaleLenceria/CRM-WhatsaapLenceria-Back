@@ -84,6 +84,11 @@ export class WhatsappGateway
     this.server.emit('new_message', payload);
   }
 
+  @OnEvent('whatsapp.message.receipt')
+  handleMessageReceipt(payload: any) {
+    this.server.emit('message_receipt', payload);
+  }
+
   @OnEvent('whatsapp.chat.status_updated')
   handleChatStatusUpdated(payload: { messageId: string; status: string }) {
     this.server.emit('chat_status_updated', payload);

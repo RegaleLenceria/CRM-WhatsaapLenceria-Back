@@ -39,12 +39,18 @@ export class ChatsService {
     return updatedMessage;
   }
 
-  async getChats(): Promise<any[]> {
-    const customers = await this.customerRepository.find({
-      relations: {
-        messages: true,
-      },
-    });
+  async getChats(deviceId?: string): Promise<any[]> {
+    const query = this.customerRepository.createQueryBuilder('customer');
+
+    if (deviceId) {
+      // Filter messages to only include messages from this device,
+      // and only select customers who have at least one message on this device.
+      query.innerJoinAndSelect('customer.messages', 'message', 'message.deviceId = :deviceId', { deviceId });
+    } else {
+      query.leftJoinAndSelect('customer.messages', 'message');
+    }
+
+    const customers = await query.getMany();
 
     const mapped = customers.map((c) => {
       const sortedMsgs = [...(c.messages || [])].sort(
@@ -77,9 +83,13 @@ export class ChatsService {
     return mapped.sort((a, b) => b.lastMessageTimestamp - a.lastMessageTimestamp);
   }
 
-  async getMessages(customerId: string): Promise<Message[]> {
+  async getMessages(customerId: string, deviceId?: string): Promise<Message[]> {
+    const where: any = { customer: { id: customerId } };
+    if (deviceId) {
+      where.device = { id: deviceId };
+    }
     return this.messageRepository.find({
-      where: { customer: { id: customerId } },
+      where,
       order: { timestamp: 'ASC' },
     });
   }
@@ -156,6 +166,7 @@ export class ChatsService {
     customerId: string,
     content: string,
     deviceId?: string,
+    mediaUrl?: string,
   ): Promise<Message> {
     const customer = await this.customerRepository.findOne({
       where: { id: customerId },
@@ -180,24 +191,31 @@ export class ChatsService {
     }
 
     // Call baileys sending
-    await this.whatsappService.sendMessage(device.id, customer.phone, content);
-
-    const message = this.messageRepository.create({
-      whatsappMessageId: `out-${Date.now()}`,
-      type: 'outgoing',
+    const result = await this.whatsappService.sendMessage(
+      device.id,
+      customer.phone,
       content,
+      mediaUrl,
+    );
+
+    const savedContent = mediaUrl ? `[image:${mediaUrl}]${content}` : content;
+    const message = this.messageRepository.create({
+      whatsappMessageId: result?.key?.id || `out-${Date.now()}`,
+      type: 'outgoing',
+      content: savedContent,
       status: 'en_atencion',
-      isRead: true,
+      isRead: false,
+      receipt: 'sent',
       timestamp: new Date(),
       customer,
       device,
     });
 
-    const saved = await this.messageRepository.save(message);
+    const savedMessage = await this.messageRepository.save(message);
 
-    this.eventEmitter.emit('whatsapp.message.new', saved);
+    this.eventEmitter.emit('whatsapp.message.new', savedMessage);
 
-    return saved;
+    return savedMessage;
   }
 
   private getInitials(name: string): string {
