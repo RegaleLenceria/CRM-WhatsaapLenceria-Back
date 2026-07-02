@@ -448,10 +448,17 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
       const savedMessage = await this.messageRepository.save(newMessage);
 
-      this.eventEmitter.emit('whatsapp.message.new', savedMessage);
+      const fullMessage = await this.messageRepository.findOne({
+        where: { id: savedMessage.id },
+        relations: { customer: true, device: true },
+      });
 
-      if (this.onMessageReceived) {
-        this.onMessageReceived(savedMessage);
+      if (fullMessage) {
+        this.eventEmitter.emit('whatsapp.message.new', fullMessage);
+
+        if (this.onMessageReceived) {
+          this.onMessageReceived(fullMessage);
+        }
       }
     } catch (error) {
       console.error(

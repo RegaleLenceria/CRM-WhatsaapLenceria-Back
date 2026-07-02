@@ -37,9 +37,9 @@ import { CampaignsModule } from './modules/campaigns/campaigns.module';
         url: configService.get<string>('DATABASE_URL'),
         autoLoadEntities: true,
         synchronize: true,
-        ssl: {
-          rejectUnauthorized: false,
-        },
+        ssl: configService.get<string>('DATABASE_URL')?.includes('supabase') 
+          ? { rejectUnauthorized: false } 
+          : false,
       }),
     }),
     AuthModule,
